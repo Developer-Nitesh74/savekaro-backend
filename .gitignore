@@ -1,0 +1,9 @@
+node_modules/
+.env
+temp/
+*.log
+npm-debug.log*
+.DS_Store
+downloads/
+bin/
+analytics.json

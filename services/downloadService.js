@@ -12,6 +12,10 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const TEMP_DIR = process.env.TEMP_DIR || './temp';
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 524288000; // 500MB default
+const COOKIES_FILE = path.join(PROJECT_ROOT, 'cookies.txt');
+
+// Realistic browser User-Agent to avoid bot detection
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 class DownloadService {
     constructor() {
@@ -25,6 +29,44 @@ class DownloadService {
         // Check for local binary first (for Render deployment)
         const localBinary = path.join(PROJECT_ROOT, 'yt-dlp');
         return localBinary;
+    }
+
+    async hasCookiesFile() {
+        try {
+            await fs.access(COOKIES_FILE);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Get anti-bot detection arguments for yt-dlp based on the platform.
+     * YouTube is especially aggressive at blocking server-based downloads.
+     */
+    async getAntiDetectionArgs(url) {
+        const platform = detectPlatform(url);
+        const args = [];
+
+        // Add user-agent for all platforms
+        args.push('--user-agent', USER_AGENT);
+
+        // Add cookies file if available (works for all platforms)
+        if (await this.hasCookiesFile()) {
+            args.push('--cookies', COOKIES_FILE);
+            console.log('🍪 Using cookies file for authentication');
+        }
+
+        // YouTube-specific anti-bot settings
+        if (platform === 'youtube') {
+            args.push(
+                '--extractor-args', 'youtube:player_client=ios,web',
+                '--no-check-certificate'
+            );
+            console.log('🛡️ Using YouTube anti-detection args (ios,web client)');
+        }
+
+        return args;
     }
 
     async initialize() {
@@ -70,8 +112,9 @@ class DownloadService {
 
             // Get video metadata using yt-dlp with spawn
             const ytdlpPath = this.getYtdlpPath();
+            const antiDetectionArgs = await this.getAntiDetectionArgs(url);
             const metadata = await new Promise((resolve, reject) => {
-                const process = spawn(ytdlpPath, ['--dump-json', '--no-warnings', url]);
+                const process = spawn(ytdlpPath, [...antiDetectionArgs, '--dump-json', '--no-warnings', url]);
 
                 let stdout = '';
                 let stderr = '';
@@ -190,7 +233,7 @@ class DownloadService {
             }
 
             // Build yt-dlp command arguments as array (no quoting needed with spawn)
-            const options = this.buildDownloadOptions(format, quality, outputPath);
+            const options = await this.buildDownloadOptions(format, quality, outputPath, url);
             const ytdlpPath = this.getYtdlpPath();
             const args = [url, ...options];
 
@@ -376,7 +419,7 @@ class DownloadService {
         return false;
     }
 
-    buildDownloadOptions(format, quality, outputPath) {
+    async buildDownloadOptions(format, quality, outputPath, url) {
         // Don't quote here - quoting is handled in command builder
         const options = ['-o', outputPath];
 
@@ -400,6 +443,10 @@ class DownloadService {
             '--no-warnings',
             '--no-check-certificate'
         );
+
+        // Add anti-detection args
+        const antiDetectionArgs = await this.getAntiDetectionArgs(url);
+        options.push(...antiDetectionArgs);
 
         return options;
     }

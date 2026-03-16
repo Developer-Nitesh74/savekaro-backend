@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Social Media Downloader - Backend API
 
 Backend server for the social media downloader application. Supports downloading videos and audio from YouTube, Instagram, TikTok, Twitter, Facebook, Vimeo, and Reddit.
@@ -242,3 +243,7 @@ Adjust rate limiting in `.env` if needed for your use case.
 ## License
 
 MIT
+=======
+# backend
+savekaro backend
+>>>>>>> 39f07ef6d013cfa001e4ecb7f790470d2d15b309

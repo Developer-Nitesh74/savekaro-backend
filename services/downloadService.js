@@ -8,6 +8,7 @@ import analyticsService from './analyticsService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const TEMP_DIR = process.env.TEMP_DIR || './temp';
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 524288000; // 500MB default
@@ -20,6 +21,12 @@ class DownloadService {
         this.activeProcesses = new Map(); // Store active child processes for cancellation
     }
 
+    getYtdlpPath() {
+        // Check for local binary first (for Render deployment)
+        const localBinary = path.join(PROJECT_ROOT, 'yt-dlp');
+        return localBinary;
+    }
+
     async initialize() {
         if (this.initialized) return;
 
@@ -27,21 +34,29 @@ class DownloadService {
             // Create temp directory if it doesn't exist
             await fs.mkdir(TEMP_DIR, { recursive: true });
 
-            // Check if yt-dlp is available via python module using spawn
+            const ytdlpPath = this.getYtdlpPath();
+
+            // Check if yt-dlp binary exists and is executable
             await new Promise((resolve, reject) => {
-                const process = spawn('python', ['-m', 'yt_dlp', '--version']);
-                process.on('close', (code) => {
-                    if (code === 0) resolve();
-                    else reject(new Error('yt-dlp not found'));
+                const proc = spawn(ytdlpPath, ['--version']);
+                let version = '';
+                proc.stdout.on('data', (data) => { version += data.toString(); });
+                proc.on('close', (code) => {
+                    if (code === 0) {
+                        console.log(`📦 yt-dlp version: ${version.trim()}`);
+                        resolve();
+                    } else {
+                        reject(new Error('yt-dlp binary not found or not executable'));
+                    }
                 });
-                process.on('error', reject);
+                proc.on('error', () => reject(new Error('yt-dlp binary not found at: ' + ytdlpPath)));
             });
 
             this.initialized = true;
             console.log('✅ Download service initialized successfully');
         } catch (error) {
             console.error('❌ Failed to initialize download service:', error);
-            console.error('Make sure yt-dlp is installed: pip install yt-dlp');
+            console.error('Make sure yt-dlp binary exists in project root');
             throw error;
         }
     }
@@ -54,8 +69,9 @@ class DownloadService {
             const platformInfo = getPlatformInfo(platform);
 
             // Get video metadata using yt-dlp with spawn
+            const ytdlpPath = this.getYtdlpPath();
             const metadata = await new Promise((resolve, reject) => {
-                const process = spawn('python', ['-m', 'yt_dlp', '--dump-json', '--no-warnings', url]);
+                const process = spawn(ytdlpPath, ['--dump-json', '--no-warnings', url]);
 
                 let stdout = '';
                 let stderr = '';
@@ -175,7 +191,8 @@ class DownloadService {
 
             // Build yt-dlp command arguments as array (no quoting needed with spawn)
             const options = this.buildDownloadOptions(format, quality, outputPath);
-            const args = ['-m', 'yt_dlp', url, ...options];
+            const ytdlpPath = this.getYtdlpPath();
+            const args = [url, ...options];
 
             console.log(`📥 Starting download: ${videoInfo.title}`);
             console.log(`   Platform: ${videoInfo.platformName}`);
@@ -188,7 +205,7 @@ class DownloadService {
 
             // Execute download using spawn (handles paths with spaces properly)
             await new Promise((resolve, reject) => {
-                const process = spawn('python', args);
+                const process = spawn(ytdlpPath, args);
 
                 // Store active process
                 this.activeProcesses.set(downloadId, { process, outputPath });
